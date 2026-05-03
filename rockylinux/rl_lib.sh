@@ -81,14 +81,21 @@ declare -A BASE_MIRRORS
 declare -A EPEL_MIRRORS
 BASE_MIRRORS["US"]="http://dl.rockylinux.org"
 EPEL_MIRRORS["US"]="http://dl.fedoraproject.org/pub/epel"
-BASE_MIRRORS["CN"]="https://mirrors.nju.edu.cn"
-EPEL_MIRRORS["CN"]="https://mirrors.nju.edu.cn/epel"
+BASE_MIRRORS["CN"]="https://mirrors.tuna.tsinghua.edu.cn"
+EPEL_MIRRORS["CN"]="https://mirrors.tuna.tsinghua.edu.cn/epel"
 BASE_MIRRORS["GB"]="http://rockylinux.mirrorservice.org"
 EPEL_MIRRORS["GB"]="https://www.mirrorservice.org/pub/epel"
 BASE_MIRRORS["AE"]="https://sa.mirrors.cicku.me"
 EPEL_MIRRORS["AE"]="https://sa.mirrors.cicku.me/epel"
 #BASE_MIRRORS["AE"]="https://mirror.ourhost.az/rockylinux/"
 #EPEL_MIRRORS["AE"]="https://mirror.yer.az/fedora-epel/"
+
+# CN-specific mirrors (user selectable via submenu)
+CN_MIRROR_NAMES=("Tsinghua University" "Nanjing University (NJU)" "Alicloud")
+CN_BASE_MIRRORS=("https://mirrors.tuna.tsinghua.edu.cn" "https://mirrors.nju.edu.cn" "https://mirrors.aliyun.com")
+CN_EPEL_MIRRORS=("https://mirrors.tuna.tsinghua.edu.cn/epel" "https://mirrors.nju.edu.cn/epel" "https://mirrors.aliyun.com/epel")
+# Path styles: "nju" uses /rocky/, "aliyun" uses /rockylinux/, "" uses /$contentdir/
+CN_MIRROR_STYLES=("nju" "nju" "aliyun")
 
 trap cleanup_existing EXIT
 
@@ -252,6 +259,15 @@ function select_mirror_country() {
     echo -e "${Green}✓${Reset} Selected mirror country: $COUNTRY (${regions[$menu_index]})\n"
 }
 
+function select_cn_mirror() {
+    local menu_options=()
+    for i in "${!CN_MIRROR_NAMES[@]}"; do
+        menu_options+=("${CN_MIRROR_NAMES[$i]} - ${CN_BASE_MIRRORS[$i]}")
+    done
+    show_menu "Select China Mirror:" 1 "${menu_options[@]}"
+    CN_MIRROR_INDEX=$menu_index
+}
+
 function yum_configure_mirror() {
     country="$1"
     if [[ -z "$country" ]]; then
@@ -267,10 +283,15 @@ function yum_configure_mirror() {
         epel_url="${EPEL_MIRRORS[US]}"
     fi
 
-    # Detect if this is NJU mirror which has different path structure
-    is_nju_mirror=0
-    if [[ "$baseos_url" =~ mirrors.nju.edu.cn ]] || [[ "$baseos_url" =~ mirrors.cicku.me ]]; then
-        is_nju_mirror=1
+    # For CN, show submenu to choose among available mirrors
+    mirror_style=""
+    if [[ "$COUNTRY" == "CN" ]]; then
+        select_cn_mirror
+        baseos_url="${CN_BASE_MIRRORS[$CN_MIRROR_INDEX]}"
+        epel_url="${CN_EPEL_MIRRORS[$CN_MIRROR_INDEX]}"
+        mirror_style="${CN_MIRROR_STYLES[$CN_MIRROR_INDEX]}"
+    elif [[ "$baseos_url" =~ mirrors.nju.edu.cn ]] || [[ "$baseos_url" =~ mirrors.cicku.me ]]; then
+        mirror_style="nju"
     fi
 
     shopt -s nocaseglob
@@ -278,7 +299,7 @@ function yum_configure_mirror() {
         [[ ! -f "$repo" ]] && continue
 
         # Use awk to process the file and update baseurl based on the section
-        awk -v mirror="${baseos_url}" -v is_nju="${is_nju_mirror}" '
+        awk -v mirror="${baseos_url}" -v mirror_style="${mirror_style}" '
         /^\[baseos\]/ { section="baseos" }
         /^\[appstream\]/ { section="appstream" }
         /^\[extras\]/ { section="extras" }
@@ -293,8 +314,8 @@ function yum_configure_mirror() {
         /^\[devel\]/ { section="devel" }
         /^\[plus\]/ { section="plus" }
         /^#?baseurl=/ {
-            if (is_nju == 1) {
-                # NJU mirror uses /rocky/ path directly without /pub/
+            if (mirror_style == "nju") {
+                # Tsinghua/NJU mirrors use /rocky/ path directly
                 if (section == "baseos") print "baseurl=" mirror "/rocky/$releasever/BaseOS/$basearch/os/"
                 else if (section == "appstream") print "baseurl=" mirror "/rocky/$releasever/AppStream/$basearch/os/"
                 else if (section == "extras") print "baseurl=" mirror "/rocky/$releasever/extras/$basearch/os/"
@@ -308,6 +329,22 @@ function yum_configure_mirror() {
                 else if (section == "saphana") print "baseurl=" mirror "/rocky/$releasever/SAPHANA/$basearch/os/"
                 else if (section == "devel") print "baseurl=" mirror "/rocky/$releasever/devel/$basearch/os/"
                 else if (section == "plus") print "baseurl=" mirror "/rocky/$releasever/plus/$basearch/os/"
+                else print
+            } else if (mirror_style == "aliyun") {
+                # Alicloud mirror uses /rockylinux/ path
+                if (section == "baseos") print "baseurl=" mirror "/rockylinux/$releasever/BaseOS/$basearch/os/"
+                else if (section == "appstream") print "baseurl=" mirror "/rockylinux/$releasever/AppStream/$basearch/os/"
+                else if (section == "extras") print "baseurl=" mirror "/rockylinux/$releasever/extras/$basearch/os/"
+                else if (section == "crb") print "baseurl=" mirror "/rockylinux/$releasever/CRB/$basearch/os/"
+                else if (section == "powertools") print "baseurl=" mirror "/rockylinux/$releasever/PowerTools/$basearch/os/"
+                else if (section == "highavailability") print "baseurl=" mirror "/rockylinux/$releasever/HighAvailability/$basearch/os/"
+                else if (section == "resilientstorage") print "baseurl=" mirror "/rockylinux/$releasever/ResilientStorage/$basearch/os/"
+                else if (section == "rt") print "baseurl=" mirror "/rockylinux/$releasever/RT/$basearch/os/"
+                else if (section == "nfv") print "baseurl=" mirror "/rockylinux/$releasever/NFV/$basearch/os/"
+                else if (section == "sap") print "baseurl=" mirror "/rockylinux/$releasever/SAP/$basearch/os/"
+                else if (section == "saphana") print "baseurl=" mirror "/rockylinux/$releasever/SAPHANA/$basearch/os/"
+                else if (section == "devel") print "baseurl=" mirror "/rockylinux/$releasever/devel/$basearch/os/"
+                else if (section == "plus") print "baseurl=" mirror "/rockylinux/$releasever/plus/$basearch/os/"
                 else print
             } else {
                 # Standard mirrors use /$contentdir/ path
